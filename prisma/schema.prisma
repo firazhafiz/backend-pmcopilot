@@ -1,0 +1,54 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// Raw sensor data sesuai input model ML
+model SensorData {
+  id                  Int      @id @default(autoincrement())
+  machineId           String
+  type                String   // L, M, H
+  airTemperature      Float    // Kelvin
+  processTemperature  Float    // Kelvin
+  rotationalSpeed     Int
+  torque              Float
+  toolWear            Int
+  timestamp           DateTime @default(now())
+  createdAt           DateTime @default(now())
+
+  @@map("sensor_data")
+  @@index([machineId, timestamp])
+}
+
+// Hasil prediksi dari model ML
+model Prediction {
+  id              Int      @id @default(autoincrement())
+  machineId       String
+  prediction      String   // "No Failure", "Power Failure", "Tool Wear Failure", dll
+  predictionIndex Int      // 0-5 sesuai urutan kelas
+  probability     Float    // Confidence tertinggi (dari raw_output)
+  rawOutput       Json     // Array of arrays dari model
+  riskLevel       String   // auto-derived: "low" atau "high"
+  recommendation  String?
+  predictedAt     DateTime @default(now())
+
+  @@map("predictions")
+  @@index([machineId, predictedAt])
+}
+
+// Dummy ticket maintenance
+model MaintenanceTicket {
+  id        Int      @id @default(autoincrement())
+  machineId String
+  issue     String
+  status    String   @default("open")
+  createdAt DateTime @default(now())
+  closedAt  DateTime?
+
+  @@map("maintenance_tickets")
+}
