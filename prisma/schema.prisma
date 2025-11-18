@@ -4,9 +4,13 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+  url      = env("DATABASE_URL") 
   directUrl = env("DIRECT_URL")
 }
+
+// ===================================
+// MODEL DATA UTAMA (TIDAK BERUBAH)
+// ===================================
 
 // Raw sensor data sesuai input model ML
 model SensorData {
@@ -27,15 +31,15 @@ model SensorData {
 
 // Hasil prediksi dari model ML
 model Prediction {
-  id              Int      @id @default(autoincrement())
-  machineId       String
-  prediction      String   // "No Failure", "Power Failure", "Tool Wear Failure", dll
-  predictionIndex Int      // 0-5 sesuai urutan kelas
-  probability     Float    // Confidence tertinggi (dari raw_output)
-  rawOutput       Json     // Array of arrays dari model
-  riskLevel       String   // auto-derived: "low" atau "high"
-  recommendation  String?
-  predictedAt     DateTime @default(now())
+  id               Int      @id @default(autoincrement())
+  machineId        String
+  prediction       String   // "No Failure", "Power Failure", "Tool Wear Failure", dll
+  predictionIndex  Int      // 0-5 sesuai urutan kelas
+  probability      Float    // Confidence tertinggi (dari raw_output)
+  rawOutput        Json     // Array of arrays dari model
+  riskLevel        String   // auto-derived: "low" atau "high"
+  recommendation   String?
+  predictedAt      DateTime @default(now())
 
   @@map("predictions")
   @@index([machineId, predictedAt])
@@ -43,12 +47,70 @@ model Prediction {
 
 // Dummy ticket maintenance
 model MaintenanceTicket {
-  id        Int      @id @default(autoincrement())
+  id        Int       @id @default(autoincrement())
   machineId String
   issue     String
-  status    String   @default("open")
-  createdAt DateTime @default(now())
+  status    String    @default("open")
+  createdAt DateTime  @default(now())
   closedAt  DateTime?
 
   @@map("maintenance_tickets")
+}
+
+// ===================================
+// CHATBOT MODELS (STRUKTUR BERPASANGAN)
+// ===================================
+
+// 1. Tabel Utama Sesi Chat
+model ChatSession {
+  id               String        @id @default(cuid())
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  
+  // Relasi Log: Semua pesan yang ada (untuk history LLM)
+  messages         ChatMessage[] 
+  
+  // Relasi Struktur: Semua putaran prompt/response (untuk audit/analisis)
+  promptGroups     PromptGroup[] 
+
+  @@map("chat_sessions")
+}
+
+// 2. Tabel Log Pesan (Setiap pesan adalah 1 baris)
+model ChatMessage {
+  id               Int           @id @default(autoincrement())
+  sessionId        String
+  content          String        @db.Text
+  role             String        // 'user' atau 'ai'
+  createdAt        DateTime      @default(now())
+
+  // Relasi ke Sesi
+  session          ChatSession   @relation(fields: [sessionId], references: [id])
+  
+  // Relasi Balik ke PromptGroup: Mengidentifikasi pesan ini sebagai bagian dari putaran Q/A
+  // Satu pesan 'user' akan menjadi promptGroupUser, dan satu pesan 'ai' akan menjadi promptGroupAI
+  promptGroupUser  PromptGroup?  @relation("UserPrompt")
+  promptGroupAI    PromptGroup?  @relation("AIResponse")
+
+  @@map("chat_messages")
+  @@index([sessionId, createdAt])
+}
+
+// 3. Tabel Grouping (Setiap baris adalah 1 putaran Q/A)
+model PromptGroup {
+  id               Int           @id @default(autoincrement())
+  sessionId        String
+  createdAt        DateTime      @default(now())
+  
+  session          ChatSession   @relation(fields: [sessionId], references: [id])
+  
+  // Kunci Asing ke ChatMessage (Pesan User)
+  userMessageId    Int           @unique // Unique: Hanya 1 prompt per PromptGroup
+  userMessage      ChatMessage   @relation("UserPrompt", fields: [userMessageId], references: [id])
+  
+  // Kunci Asing ke ChatMessage (Pesan AI - bisa null jika AI belum/gagal jawab)
+  aiMessageId      Int?          @unique 
+  aiMessage        ChatMessage?  @relation("AIResponse", fields: [aiMessageId], references: [id])
+
+  @@map("prompt_groups")
 }
