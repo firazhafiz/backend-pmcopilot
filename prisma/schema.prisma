@@ -1,3 +1,5 @@
+// prisma/schema.prisma
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -14,22 +16,24 @@ datasource db {
 
 // Raw sensor data sesuai input model ML
 model SensorData {
-  id                  Int      @id @default(autoincrement())
-  machineId           String
-  type                String   // L, M, H
-  airTemperature      Float    // Kelvin
-  processTemperature  Float    // Kelvin
-  rotationalSpeed     Int
-  torque              Float
-  toolWear            Int
-  timestamp           DateTime @default(now())
-  createdAt           DateTime @default(now())
+  id                 Int      @id @default(autoincrement())
+  airTemperature     Float
+  processTemperature Float
+  rotationalSpeed    Int
+  torque             Float
+  toolWear           Int
+  timestamp          DateTime @default(now())
+  createdAt          DateTime @default(now())
+
+  // Relasi: Menghubungkan ke tabel Machine
+  machine   Machine @relation(fields: [machineId], references: [id])
+  machineId String  // Ini adalah Foreign Key
 
   @@map("sensor_data")
   @@index([machineId, timestamp])
 }
 
-// Hasil prediksi dari model ML
+// Prediksi dari ML (Sudah diperbaiki dengan relasi)
 model Prediction {
   id               Int      @id @default(autoincrement())
   machineId        String
@@ -41,11 +45,15 @@ model Prediction {
   recommendation   String?
   predictedAt      DateTime @default(now())
 
+  // Relasi: Menghubungkan ke tabel Machine
+  machine   Machine @relation(fields: [machineId], references: [id])
+  machineId String  // Ini adalah Foreign Key
+
   @@map("predictions")
   @@index([machineId, predictedAt])
 }
 
-// Dummy ticket maintenance
+// Tiket Maintenance (Sudah diperbaiki dengan relasi)
 model MaintenanceTicket {
   id        Int       @id @default(autoincrement())
   machineId String
@@ -53,6 +61,10 @@ model MaintenanceTicket {
   status    String    @default("open")
   createdAt DateTime  @default(now())
   closedAt  DateTime?
+
+  // Relasi: Menghubungkan ke tabel Machine
+  machine   Machine @relation(fields: [machineId], references: [id])
+  machineId String  // Ini adalah Foreign Key
 
   @@map("maintenance_tickets")
 }
