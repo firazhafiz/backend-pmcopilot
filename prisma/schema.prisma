@@ -1,54 +1,112 @@
+// prisma/schema.prisma
+
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
 
-// Raw sensor data sesuai input model ML
+// ===================================
+// PERBAIKAN: SKEMA INTI YANG BENAR
+// ===================================
+
+// Model Induk (Master) untuk Mesin
+model Machine {
+  id   String @id // "M14860", "L47181", dll. dari CSV
+  type String // L, M, H
+
+  // Relasi: 1 Mesin punya BANYAK data di model lain
+  sensorReadings SensorData[]
+  predictions    Prediction[]
+  tickets        MaintenanceTicket[]
+  
+  @@map("machines")
+}
+
+// Data Sensor (Sudah diperbaiki dengan relasi)
 model SensorData {
-  id                  Int      @id @default(autoincrement())
-  machineId           String
-  type                String   // L, M, H
-  airTemperature      Float    // Kelvin
-  processTemperature  Float    // Kelvin
-  rotationalSpeed     Int
-  torque              Float
-  toolWear            Int
-  timestamp           DateTime @default(now())
-  createdAt           DateTime @default(now())
+  id                 Int      @id @default(autoincrement())
+  airTemperature     Float
+  processTemperature Float
+  rotationalSpeed    Int
+  torque             Float
+  toolWear           Int
+  timestamp          DateTime @default(now())
+  createdAt          DateTime @default(now())
+
+  // Relasi: Menghubungkan ke tabel Machine
+  machine   Machine @relation(fields: [machineId], references: [id])
+  machineId String  // Ini adalah Foreign Key
 
   @@map("sensor_data")
   @@index([machineId, timestamp])
 }
 
-// Hasil prediksi dari model ML
+// Prediksi dari ML (Sudah diperbaiki dengan relasi)
 model Prediction {
   id              Int      @id @default(autoincrement())
-  machineId       String
-  prediction      String   // "No Failure", "Power Failure", "Tool Wear Failure", dll
-  predictionIndex Int      // 0-5 sesuai urutan kelas
-  probability     Float    // Confidence tertinggi (dari raw_output)
-  rawOutput       Json     // Array of arrays dari model
-  riskLevel       String   // auto-derived: "low" atau "high"
+  prediction      String   // "No Failure", "Power Failure", dll
+  predictionIndex Int
+  probability     Float
+  rawOutput       Json
+  riskLevel       String   // "low" atau "high"
   recommendation  String?
   predictedAt     DateTime @default(now())
+
+  // Relasi: Menghubungkan ke tabel Machine
+  machine   Machine @relation(fields: [machineId], references: [id])
+  machineId String  // Ini adalah Foreign Key
 
   @@map("predictions")
   @@index([machineId, predictedAt])
 }
 
-// Dummy ticket maintenance
+// Tiket Maintenance (Sudah diperbaiki dengan relasi)
 model MaintenanceTicket {
-  id        Int      @id @default(autoincrement())
-  machineId String
+  id        Int       @id @default(autoincrement())
   issue     String
-  status    String   @default("open")
-  createdAt DateTime @default(now())
+  status    String    @default("open")
+  createdAt DateTime  @default(now())
   closedAt  DateTime?
 
+  // Relasi: Menghubungkan ke tabel Machine
+  machine   Machine @relation(fields: [machineId], references: [id])
+  machineId String  // Ini adalah Foreign Key
+
   @@map("maintenance_tickets")
+}
+
+// ===================================
+// PENAMBAHAN: RIWAYAT CHATBOT
+// ===================================
+
+// Tabel untuk mengelompokkan pesan dalam satu sesi obrolan
+model ChatSession {
+  id        String   @id @default(cuid()) // ID Sesi unik (dibuat oleh frontend/backend)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relasi: 1 Sesi punya BANYAK Pesan
+  messages ChatMessage[]
+  
+  @@map("chat_sessions")
+}
+
+// Tabel untuk menyimpan setiap pesan (User dan AI)
+model ChatMessage {
+  id        Int      @id @default(autoincrement())
+  content   String   @db.Text // Pesan bisa jadi panjang
+  role      String   // "user" atau "ai"
+  createdAt DateTime @default(now())
+  
+  // Relasi: 1 Pesan milik 1 Sesi
+  session   ChatSession @relation(fields: [sessionId], references: [id])
+  sessionId String      // Ini adalah Foreign Key
+  
+  @@map("chat_messages")
+  @@index([sessionId])
 }
