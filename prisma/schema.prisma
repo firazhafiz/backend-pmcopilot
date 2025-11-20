@@ -1,3 +1,5 @@
+// prisma/schema.prisma
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -32,11 +34,6 @@ model Machine {
 
 model SensorData {
   id                 Int      @id @default(autoincrement())
-  
-  // Relasi ke Machine (Lebih Rapi)
-  machineId          String
-  machine            Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
-
   airTemperature     Float
   processTemperature Float
   rotationalSpeed    Int
@@ -45,10 +42,15 @@ model SensorData {
   timestamp          DateTime @default(now())
   createdAt          DateTime @default(now())
 
+  // Relasi: Menghubungkan ke tabel Machine
+  machine   Machine @relation(fields: [machineId], references: [id])
+  machineId String  // Ini adalah Foreign Key
+
   @@map("sensor_data")
   @@index([machineId, timestamp])
 }
 
+// Prediksi dari ML (Sudah diperbaiki dengan relasi)
 model Prediction {
   id              Int      @id @default(autoincrement())
   
@@ -64,10 +66,15 @@ model Prediction {
   recommendation  String?
   predictedAt     DateTime @default(now())
 
+  // Relasi: Menghubungkan ke tabel Machine
+  machine   Machine @relation(fields: [machineId], references: [id])
+  machineId String  // Ini adalah Foreign Key
+
   @@map("predictions")
   @@index([machineId, predictedAt])
 }
 
+// Tiket Maintenance (Sudah diperbaiki dengan relasi)
 model MaintenanceTicket {
   id        Int      @id @default(autoincrement())
   
@@ -79,6 +86,10 @@ model MaintenanceTicket {
   status    String   @default("open") // "open", "in_progress", "resolved"
   createdAt DateTime @default(now())
   closedAt  DateTime?
+
+  // Relasi: Menghubungkan ke tabel Machine
+  machine   Machine @relation(fields: [machineId], references: [id])
+  machineId String  // Ini adalah Foreign Key
 
   @@map("maintenance_tickets")
 }
