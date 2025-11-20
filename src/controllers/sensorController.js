@@ -2,85 +2,121 @@
 const { z } = require("zod");
 const { PrismaClient } = require("@prisma/client");
 const { predictAnomaly, saveSensorData } = require("../services/sensorService");
+
 const prisma = new PrismaClient();
 
+// Schema untuk add sensor manual
 const SensorDataSchema = z.object({
-  machineId: z.string().min(1, "machineId harus diisi."),
+  machineId: z.string().min(1, "machineId harus diisi.").trim(),
   type: z.string().optional(),
-  airTemperature: z.number().positive(),
-  processTemperature: z.number().positive(),
-  rotationalSpeed: z.number().int().positive(),
-  torque: z.number().positive(),
-  toolWear: z.number().int().min(0).optional(),
+  airTemperature: z.number().positive("Suhu udara harus positif"),
+  processTemperature: z.number().positive("Suhu proses harus positif"),
+  rotationalSpeed: z
+    .number()
+    .int()
+    .positive("Kecepatan rotasi harus bilangan bulat positif"),
+  torque: z.number().positive("Torsi harus positif"),
+  toolWear: z
+    .number()
+    .int()
+    .min(0, "Tool wear tidak boleh negatif")
+    .optional()
+    .default(0),
 });
-const PredictSchema = SensorDataSchema.extend({});
 
+// Schema untuk predict (hanya machineId)
+const PredictSchema = z.object({
+  machineId: z.string().min(1, "machineId harus diisi").trim(),
+});
+
+// 1. GET SENSOR DATA (100 terbaru)
 const getSensorData = async (req, res, next) => {
   try {
     const { machineId } = req.params;
 
-    if (!z.string().min(1).safeParse(machineId).success) {
-      res.status(400);
-      throw new Error("Invalid machineId format in URL.");
+    if (!machineId || machineId.trim() === "") {
+      return res
+        .status(400)
+        .json({ error: "machineId di URL tidak boleh kosong" });
     }
 
     const data = await prisma.sensorData.findMany({
-      where: { machineId },
+      where: { machineId: machineId.trim() },
       orderBy: { timestamp: "desc" },
       take: 100,
     });
+
     res.json(data);
   } catch (err) {
     next(err);
   }
 };
 
+// 2. PREDICT ANOMALY — NAMANYA predictAnomalyController (BIAR GAK BENTROK DENGAN SERVICE!)
 const predictAnomalyController = async (req, res, next) => {
   try {
-    const validatedData = PredictSchema.parse(req.body);
+    const { machineId } = PredictSchema.parse(req.body);
 
-    const { machineId, ...sensorData } = validatedData;
+    const result = await predictAnomaly(machineId); // INI DARI SERVICE
 
-    const result = await predictAnomaly(machineId, sensorData);
-    res.json(result);
+    return res.json(result);
   } catch (err) {
     if (err instanceof z.ZodError) {
       return res.status(400).json({
-        error: "Validation Failed (Bad Request)",
-        details: err.issues.map((issue) => ({
-          field: issue.path.join("."),
-          message: issue.message,
+        error: "Validation Failed",
+        details: err.issues.map((i) => ({
+          field: i.path.join("."),
+          message: i.message,
         })),
       });
     }
 
-    next(err);
+    if (err.code === "MACHINE_NOT_FOUND") {
+      return res.status(404).json({
+        error: "Machine Not Found",
+        message: `Machine ID "${req.body.machineId}" tidak tersedia di dataset ML.`,
+        suggestion: "Pastikan ID mesin sesuai dengan data yang ada di sistem.",
+      });
+    }
+
+    console.error("Predict Error:", err.message);
+    return res.status(500).json({
+      error: "Service Error",
+      message: "Gagal memproses prediksi. Coba lagi nanti.",
+    });
   }
 };
 
+// 3. ADD SENSOR DATA MANUAL
 const addSensor = async (req, res, next) => {
   try {
-    const validatedData = SensorDataSchema.parse(req.body);
+    const validated = SensorDataSchema.parse(req.body);
 
-    const data = await saveSensorData(validatedData);
-    res.status(201).json(data);
+    const dataToSave = {
+      ...validated,
+      machineId: validated.machineId.trim(),
+      timestamp: new Date(),
+    };
+
+    const saved = await saveSensorData(dataToSave);
+    return res.status(201).json(saved);
   } catch (err) {
     if (err instanceof z.ZodError) {
       return res.status(400).json({
-        error: "Validation Failed (Bad Request)",
-        details: err.issues.map((issue) => ({
-          field: issue.path.join("."),
-          message: issue.message,
+        error: "Validation Failed",
+        details: err.issues.map((i) => ({
+          field: i.path.join("."),
+          message: i.message,
         })),
       });
     }
-
     next(err);
   }
 };
 
+// EXPORT SEMUA — SESUAI DENGAN ROUTES KAMU!
 module.exports = {
   getSensorData,
-  predictAnomaly: predictAnomalyController,
+  predictAnomaly: predictAnomalyController, // INI YANG DIPANGGIL DI ROUTES
   addSensor,
 };

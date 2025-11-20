@@ -1,4 +1,4 @@
-// src/services/sensorServices.js
+// src/services/sensorService.js
 const { PrismaClient } = require("@prisma/client");
 const axios = require("axios");
 const config = require("../config");
@@ -14,83 +14,148 @@ const FAILURE_CLASSES = [
   "Random Failures",
 ];
 
-async function predictAnomaly(machineId, sensorData) {
+async function callMlApi(machineId) {
+  if (!config.mlApiUrl) {
+    throw new Error("ML_API_URL belum diset di .env");
+  }
+
   try {
-    if (!config.mlApiUrl) {
-      throw new Error("ML_API_URL belum dikonfigurasi");
-    }
-
-    const payload = {
-      Type: sensorData.type || "M",
-      Air_temperature: sensorData.airTemperature,
-      Process_temperature: sensorData.processTemperature,
-      Rotational_speed: sensorData.rotationalSpeed,
-      Torque: sensorData.torque,
-      Tool_wear: sensorData.toolWear || 0,
-    };
-
-    let mlResult;
-    try {
-      const response = await axios.post(config.mlApiUrl, payload);
-      mlResult = response.data;
-    } catch (apiError) {
-      console.error("External ML API Call Error:", apiError.message);
-      throw new Error(
-        "Gagal menghubungi atau memproses respons dari model prediksi."
-      );
-    }
-
-    const rawArray = mlResult.raw_output[0];
-    const maxProb = Math.max(...rawArray);
-    const predictedIndex = rawArray.indexOf(maxProb);
-
-    const predictedClass =
-      mlResult.prediction || FAILURE_CLASSES[predictedIndex];
-    const isFailure = predictedClass !== "No Failure";
-    const riskLevel = isFailure ? "high" : "low";
-
-    let saved;
-    try {
-      saved = await prisma.prediction.create({
-        data: {
-          machineId,
-          prediction: predictedClass,
-          predictionIndex: predictedIndex,
-          probability: parseFloat(maxProb.toFixed(4)),
-          rawOutput: mlResult.raw_output,
-          riskLevel,
-          recommendation: isFailure
-            ? `TERDETEKSI ${predictedClass.toUpperCase()}! Segera lakukan maintenance preventif pada mesin ${machineId}.`
-            : `Mesin ${machineId} dalam kondisi normal.`,
-        },
-      });
-    } catch (dbError) {
-      console.error("Prisma Error during prediction save:", dbError.message);
-      throw dbError;
-    }
-
-    return {
-      machineId,
-      prediction: predictedClass,
-      predictionIndex: predictedIndex,
-      probability: parseFloat(maxProb.toFixed(4)),
-      riskLevel,
-      recommendation: saved.recommendation,
-      rawOutput: mlResult.raw_output,
-      predictedAt: new Date().toISOString(),
-    };
+    const response = await axios.post(
+      config.mlApiUrl,
+      { MachineID: machineId },
+      { timeout: 15000 }
+    );
+    return response.data;
   } catch (error) {
-    throw error;
+    if (error.response?.status === 404) {
+      const err = new Error("Machine ID tidak ditemukan");
+      err.code = "MACHINE_NOT_FOUND";
+      throw err;
+    }
+    throw new Error("Gagal menghubungi ML API");
   }
 }
 
-async function saveSensorData(data) {
-  try {
-    return await prisma.sensorData.create({ data });
-  } catch (dbError) {
-    console.error("Prisma Error during sensor data save:", dbError.message);
-    throw dbError;
+const predictAnomaly = async (machineId) => {
+  // 1. Cek cache DB dulu
+  const cachedSensor = await prisma.sensorData.findFirst({
+    where: { machineId },
+    orderBy: { timestamp: "desc" },
+    include: { machine: { select: { type: true } } },
+  });
+
+  const cachedPrediction = await prisma.prediction.findFirst({
+    where: { machineId },
+    orderBy: { predictedAt: "desc" },
+  });
+
+  if (cachedSensor && cachedPrediction) {
+    console.log(`[CACHE HIT] Data ${machineId} dari database`);
+    return {
+      sensorData: {
+        type: cachedSensor.machine?.type || "M",
+        airTemperature: cachedSensor.airTemperature,
+        processTemperature: cachedSensor.processTemperature,
+        rotationalSpeed: cachedSensor.rotationalSpeed,
+        torque: cachedSensor.torque,
+        toolWear: cachedSensor.toolWear,
+        timestamp: cachedSensor.timestamp,
+      },
+      predictionResult: {
+        machineId,
+        prediction: cachedPrediction.prediction,
+        probability: cachedPrediction.probability,
+        riskLevel: cachedPrediction.riskLevel,
+        recommendation: cachedPrediction.recommendation,
+        predictedAt: cachedPrediction.predictedAt,
+      },
+    };
   }
-}
+
+  // 2. Panggil ML API
+  console.log(`[ML API] Mengambil data untuk ${machineId}...`);
+  const ml = await callMlApi(machineId);
+
+  const airTemp = parseFloat(ml["Air temperature [K]"]);
+  const processTemp = parseFloat(ml["Process temperature [K]"]);
+  const rotSpeed = parseInt(ml["Rotational speed [rpm]"]);
+  const torque = parseFloat(ml["Torque [Nm]"]);
+  const toolWear = parseInt(ml["Tool wear [min]"]);
+  const type = ml["Type"] || "M";
+  const failure = ml["Predicted Failure Type"] || "No Failure";
+
+  if (
+    isNaN(airTemp) ||
+    isNaN(processTemp) ||
+    isNaN(rotSpeed) ||
+    isNaN(torque) ||
+    isNaN(toolWear)
+  ) {
+    throw new Error("Data dari ML API tidak valid");
+  }
+
+  const isFailure = failure !== "No Failure";
+  const riskLevel = isFailure ? "high" : "low";
+
+  await prisma.$transaction(async (tx) => {
+    await tx.machine.upsert({
+      where: { id: machineId },
+      update: { type },
+      create: { id: machineId, type },
+    });
+
+    await tx.sensorData.create({
+      data: {
+        machineId,
+        airTemperature: airTemp,
+        processTemperature: processTemp,
+        rotationalSpeed: rotSpeed,
+        torque,
+        toolWear,
+        timestamp: new Date(),
+      },
+    });
+
+    await tx.prediction.create({
+      data: {
+        machineId,
+        prediction: failure,
+        predictionIndex: FAILURE_CLASSES.indexOf(failure),
+        probability: 1.0,
+        rawOutput: ml,
+        riskLevel,
+        recommendation: isFailure
+          ? `TERDETEKSI ${failure.toUpperCase()}! Segera lakukan maintenance pada ${machineId}.`
+          : `Mesin ${machineId} dalam kondisi normal.`,
+      },
+    });
+  });
+
+  return {
+    sensorData: {
+      type,
+      airTemperature: airTemp,
+      processTemperature: processTemp,
+      rotationalSpeed: rotSpeed,
+      torque,
+      toolWear,
+      timestamp: new Date().toISOString(),
+    },
+    predictionResult: {
+      machineId,
+      prediction: failure,
+      probability: 1.0,
+      riskLevel,
+      recommendation: isFailure
+        ? `TERDETEKSI ${failure.toUpperCase()}! Segera lakukan maintenance pada ${machineId}.`
+        : `Mesin ${machineId} dalam kondisi normal.`,
+      predictedAt: new Date().toISOString(),
+    },
+  };
+};
+
+const saveSensorData = async (data) => {
+  return await prisma.sensorData.create({ data });
+};
 
 module.exports = { predictAnomaly, saveSensorData };
