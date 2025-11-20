@@ -1,23 +1,27 @@
 // src/controllers/agentController.js
-const { handleUserMessage } = require("../agent/predictiveAgent");
+
+const agentService = require("../services/agentService");
 
 async function chatWithAgent(req, res, next) {
   try {
     const { message, machineId } = req.body;
+    
+    // Ambil ID dari Body atau Header
+    const sessionIdInput = req.body.sessionId || req.headers["x-session-id"];
+
+    // Validasi Input Dasar
     if (!message) {
       return res.status(400).json({ error: "Message wajib diisi!" });
     }
 
-    // Pakai timestamp sebagai sessionId sederhana
-    const sessionId = req.headers["x-session-id"] || Date.now().toString();
-    const reply = await handleUserMessage(sessionId, message, machineId);
+    // Panggil Service (Semua logika berat ada di sini)
+    const result = await agentService.processChat(sessionIdInput, message, machineId);
 
-    res.json({
-      reply,
-      sessionId, // Buat maintain conversation
-      timestamp: new Date().toISOString(),
-    });
+    // Kirim Response
+    res.json(result);
+
   } catch (error) {
+    // Error handling terpusat
     next(error);
   }
 }
