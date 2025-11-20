@@ -3,114 +3,112 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL") 
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
 
 // ===================================
-// MODEL DATA UTAMA (TIDAK BERUBAH)
+// 1. MODEL UTAMA: MESIN (MASTER DATA)
+// ===================================
+// Penting: Agar machineId di tabel lain valid & bisa di-klik di FE
+model Machine {
+  id        String   @id @default(uuid()) // ID unik mesin (misal: "m-001")
+  name      String   // Nama Mesin (misal: "CNC Milling A")
+  location  String?  // Lokasi (misal: "Lantai 1")
+  createdAt DateTime @default(now())
+
+  // Relasi ke data lain
+  sensorData         SensorData[]
+  predictions        Prediction[]
+  maintenanceTickets MaintenanceTicket[]
+
+  @@map("machines")
+}
+
+// ===================================
+// 2. DATA MONITORING
 // ===================================
 
-// Raw sensor data sesuai input model ML
 model SensorData {
-  id                  Int      @id @default(autoincrement())
-  machineId           String
-  type                String   // L, M, H
-  airTemperature      Float    // Kelvin
-  processTemperature  Float    // Kelvin
-  rotationalSpeed     Int
-  torque              Float
-  toolWear            Int
-  timestamp           DateTime @default(now())
-  createdAt           DateTime @default(now())
+  id                 Int      @id @default(autoincrement())
+  
+  // Relasi ke Machine (Lebih Rapi)
+  machineId          String
+  machine            Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
+
+  airTemperature     Float
+  processTemperature Float
+  rotationalSpeed    Int
+  torque             Float
+  toolWear           Int
+  timestamp          DateTime @default(now())
+  createdAt          DateTime @default(now())
 
   @@map("sensor_data")
   @@index([machineId, timestamp])
 }
 
-// Hasil prediksi dari model ML
 model Prediction {
-  id               Int      @id @default(autoincrement())
-  machineId        String
-  prediction       String   // "No Failure", "Power Failure", "Tool Wear Failure", dll
-  predictionIndex  Int      // 0-5 sesuai urutan kelas
-  probability      Float    // Confidence tertinggi (dari raw_output)
-  rawOutput        Json     // Array of arrays dari model
-  riskLevel        String   // auto-derived: "low" atau "high"
-  recommendation   String?
-  predictedAt      DateTime @default(now())
+  id              Int      @id @default(autoincrement())
+  
+  // Relasi ke Machine
+  machineId       String
+  machine         Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
+
+  prediction      String   // "No Failure", "Power Failure", dll
+  predictionIndex Int      
+  probability     Float    
+  rawOutput       Json     
+  riskLevel       String   // "low" / "high"
+  recommendation  String?
+  predictedAt     DateTime @default(now())
 
   @@map("predictions")
   @@index([machineId, predictedAt])
 }
 
-// Dummy ticket maintenance
 model MaintenanceTicket {
-  id        Int       @id @default(autoincrement())
+  id        Int      @id @default(autoincrement())
+  
+  // Relasi ke Machine
   machineId String
+  machine   Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
+
   issue     String
-  status    String    @default("open")
-  createdAt DateTime  @default(now())
+  status    String   @default("open") // "open", "in_progress", "resolved"
+  createdAt DateTime @default(now())
   closedAt  DateTime?
 
   @@map("maintenance_tickets")
 }
 
 // ===================================
-// CHATBOT MODELS (STRUKTUR BERPASANGAN)
+// 3. CHATBOT (VERSI FE-FRIENDLY)
 // ===================================
 
-// 1. Tabel Utama Sesi Chat
+// Sesi Chat (Judul di Sidebar)
 model ChatSession {
-  id               String        @id @default(cuid())
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
+  id        String   @id @default(cuid())
+  title     String?  // Judul topik (misal: "Analisis Mesin CNC tgl 19")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
   
-  // Relasi Log: Semua pesan yang ada (untuk history LLM)
-  messages         ChatMessage[] 
-  
-  // Relasi Struktur: Semua putaran prompt/response (untuk audit/analisis)
-  promptGroups     PromptGroup[] 
+  messages  ChatMessage[] 
 
   @@map("chat_sessions")
 }
 
-// 2. Tabel Log Pesan (Setiap pesan adalah 1 baris)
+// Isi Chat (Gelembung Pesan)
 model ChatMessage {
-  id               Int           @id @default(autoincrement())
-  sessionId        String
-  content          String        @db.Text
-  role             String        // 'user' atau 'ai'
-  createdAt        DateTime      @default(now())
-
-  // Relasi ke Sesi
-  session          ChatSession   @relation(fields: [sessionId], references: [id])
+  id        Int      @id @default(autoincrement())
+  content   String   @db.Text
+  role      String   // "user" | "assistant" (Gunakan 'assistant' agar standar dgn OpenAI)
+  createdAt DateTime @default(now())
   
-  // Relasi Balik ke PromptGroup: Mengidentifikasi pesan ini sebagai bagian dari putaran Q/A
-  // Satu pesan 'user' akan menjadi promptGroupUser, dan satu pesan 'ai' akan menjadi promptGroupAI
-  promptGroupUser  PromptGroup?  @relation("UserPrompt")
-  promptGroupAI    PromptGroup?  @relation("AIResponse")
+  sessionId String
+  session   ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@map("chat_messages")
-  @@index([sessionId, createdAt])
-}
-
-// 3. Tabel Grouping (Setiap baris adalah 1 putaran Q/A)
-model PromptGroup {
-  id               Int           @id @default(autoincrement())
-  sessionId        String
-  createdAt        DateTime      @default(now())
-  
-  session          ChatSession   @relation(fields: [sessionId], references: [id])
-  
-  // Kunci Asing ke ChatMessage (Pesan User)
-  userMessageId    Int           @unique // Unique: Hanya 1 prompt per PromptGroup
-  userMessage      ChatMessage   @relation("UserPrompt", fields: [userMessageId], references: [id])
-  
-  // Kunci Asing ke ChatMessage (Pesan AI - bisa null jika AI belum/gagal jawab)
-  aiMessageId      Int?          @unique 
-  aiMessage        ChatMessage?  @relation("AIResponse", fields: [aiMessageId], references: [id])
-
-  @@map("prompt_groups")
+  @@index([sessionId, createdAt]) // Index penting agar loading chat cepat
 }
