@@ -1,11 +1,10 @@
 const express = require("express");
 const cors = require("cors");
-const { PrismaClient } = require("@prisma/client");
+const prisma = require("./lib/prisma");
 const config = require("./config");
 const routes = require("./routes");
 const errorHandler = require("./utils/errorHandler");
 
-const prisma = new PrismaClient();
 const app = express();
 
 app.use(cors({ origin: "http://localhost:3000" }));

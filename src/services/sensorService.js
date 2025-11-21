@@ -1,6 +1,5 @@
 // src/services/sensorService.js
-const { PrismaClient } = require("@prisma/client");
-const prisma = new PrismaClient();
+const prisma = require("../lib/prisma");
 const { getCachedPrediction } = require("../lib/cacheDB");
 const { callMlApi } = require("../lib/apiML");
 
@@ -19,6 +18,7 @@ async function predictAnomaly(machineId) {
   // 1. Cek cache dulu
   let cached = await getCachedPrediction(machineId);
   if (cached) {
+    console.log(`[CACHE HIT] ${machineId}`);
     // KALO ADA CACHE → langsung format sesuai yang diharapkan semua orang
     return formatResponse(cached.sensor, cached.prediction);
   }
@@ -105,7 +105,35 @@ async function predictAnomaly(machineId) {
   return formatResponse(result.sensor, result.prediction);
 }
 
-// Helper biar format return selalu konsisten (ini yang bikin nggak error lagi)
+// 2. FUNGSI GET (BARU: Ambil Semua Data)
+async function getAllMachinesFullData() {
+  // Mengambil semua mesin yang terdaftar
+  const machines = await prisma.machine.findMany({
+    orderBy: { id: 'asc' }, // Urutkan ID mesin A-Z
+    include: {
+      // A. Ambil Data Sensor
+      sensorReadings: {
+        orderBy: { timestamp: 'desc' }, // Yang terbaru diatas
+        take: 100 // ⚠️ PERHATIAN: Batasi misal 100 data terakhir agar tidak berat
+      },
+      
+      // B. Ambil Data Prediksi (Klasifikasi/Anomaly)
+      predictions: {
+        orderBy: { predictedAt: 'desc' },
+        take: 100
+      },
+      
+      // C. Time Series (Nanti)
+      // Karena tabel Time Series belum ada (sedang dikerjakan teman),
+      // nanti Anda tinggal tambahkan relasinya di sini.
+      // timeSeriesPredictions: { ... } 
+    }
+  });
+
+  return machines;
+}
+
+// Helper Format (Tetap Sama)
 function formatResponse(sensor, prediction) {
   return {
     sensorData: {
@@ -128,4 +156,8 @@ function formatResponse(sensor, prediction) {
   };
 }
 
-module.exports = { predictAnomaly };
+// JANGAN LUPA EXPORT SEMUA FUNGSI
+module.exports = { 
+  predictAnomaly,      // Untuk POST /machines & Agent
+  getAllMachinesFullData // Untuk GET /machines
+};

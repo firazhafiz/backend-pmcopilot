@@ -1,6 +1,5 @@
-// src/services/cacheService.js
-const { PrismaClient } = require("@prisma/client");
-const prisma = new PrismaClient();
+// src/lib/cacheDB.js
+const prisma = require("./prisma"); // <--- UBAH INI (Import Singleton)
 
 async function getCachedPrediction(machineId) {
   const [sensor, prediction] = await Promise.all([
@@ -16,10 +15,8 @@ async function getCachedPrediction(machineId) {
   ]);
 
   if (sensor && prediction) {
-    console.log(`[CACHE HIT] Data ${machineId} dari database`);
     return { sensor, prediction };
   }
-
   return null;
 }
 

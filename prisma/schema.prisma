@@ -1,150 +1,118 @@
 // prisma/schema.prisma
 
 generator client {
-  provider = "prisma-client-js"
+  provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL") 
-  directUrl = env("DIRECT_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // ===================================
-// MODEL INTI (MACHINE)
-// 🛑 FIX: Model Machine harus ada di sini agar relasi dikenali.
+// MODEL INTI (TIDAK DIUBAH)
 // ===================================
 
 model Machine {
-  id   String @id
-  type String @default("unknown")
+  id   String @id
+  type String @default("unknown")
 
-  sensorReadings   SensorData[]
-  predictions      Prediction[]
-  tickets          MaintenanceTicket[]
+  sensorReadings SensorData[]
+  predictions    Prediction[]
+  tickets        MaintenanceTicket[]
 
-  @@map("machines")
+  @@map("machines")
 }
-
-// ===================================
-// MODEL DATA UTAMA
-// ===================================
 
 // Raw sensor data sesuai input model ML
 model SensorData {
-  id                 Int      @id @default(autoincrement())
-  airTemperature     Float
-  processTemperature Float
-  rotationalSpeed    Int
-  torque             Float
-  toolWear           Int
-  timestamp          DateTime @default(now())
-  createdAt          DateTime @default(now())
+  id                 Int      @id @default(autoincrement())
+  airTemperature     Float
+  processTemperature Float
+  rotationalSpeed    Int
+  torque             Float
+  toolWear           Int
+  timestamp          DateTime @default(now())
+  createdAt          DateTime @default(now())
 
-  // Foreign Key Field
-  machineId String 
+  // Foreign Key Field
+  machineId String 
 
-  // Relasi: Menghubungkan ke tabel Machine
-  machine   Machine @relation(fields: [machineId], references: [id])
+  // Relasi: Menghubungkan ke tabel Machine
+  machine   Machine @relation(fields: [machineId], references: [id])
 
-  @@map("sensor_data")
-  @@index([machineId, timestamp])
+  @@map("sensor_data")
+  @@index([machineId, timestamp])
 }
 
-// Prediksi dari ML (Sudah diperbaiki dengan relasi)
+// Prediksi dari ML
 model Prediction {
-  id               Int      @id @default(autoincrement())
+  id                Int      @id @default(autoincrement())
 
-  // Foreign Key Field: String? agar NULLABLE, mencegah Foreign Key Violation
-  machineId        String? 
+  // Foreign Key Field: String? agar NULLABLE sesuai kode asli Anda
+  machineId         String? 
 
-  prediction       String   
-  predictionIndex  Int      
-  probability      Float    
-  rawOutput        Json     
-  riskLevel        String   
-  recommendation   String?
-  predictedAt      DateTime @default(now())
+  prediction        String   
+  predictionIndex   Int      
+  probability       Float    
+  rawOutput         Json     
+  riskLevel         String   
+  recommendation    String?
+  predictedAt       DateTime @default(now())
 
-  // Relasi: Menghubungkan ke tabel Machine (Machine? agar relasi opsional)
-  machine   Machine? @relation(fields: [machineId], references: [id])
+  // Relasi: Menghubungkan ke tabel Machine
+  machine   Machine? @relation(fields: [machineId], references: [id])
 
-  @@map("predictions")
-  @@index([machineId, predictedAt])
+  @@map("predictions")
+  @@index([machineId, predictedAt])
 }
 
-// Tiket Maintenance (Sudah diperbaiki dengan relasi)
+// Tiket Maintenance
 model MaintenanceTicket {
-  id        Int       @id @default(autoincrement())
+  id        Int       @id @default(autoincrement())
 
-  // Foreign Key Field
-  machineId String
+  // Foreign Key Field
+  machineId String
 
-  issue     String
-  status    String    @default("open")
-  createdAt DateTime  @default(now())
-  closedAt  DateTime?
+  issue     String
+  status    String    @default("open")
+  createdAt DateTime  @default(now())
+  closedAt  DateTime?
 
-  // Relasi: Menghubungkan ke tabel Machine
-  machine   Machine @relation(fields: [machineId], references: [id])
+  // Relasi: Menghubungkan ke tabel Machine
+  machine   Machine @relation(fields: [machineId], references: [id])
 
-  @@map("maintenance_tickets")
+  @@map("maintenance_tickets")
 }
 
 // ===================================
-// CHATBOT MODELS (STRUKTUR BERPASANGAN)
+// CHATBOT MODELS (DIPERBARUI)
+// Menggunakan struktur referensi (Sederhana)
 // ===================================
 
-// 1. Tabel Utama Sesi Chat
+// 1. Sesi Chat (Judul di Sidebar)
 model ChatSession {
-  id               String        @id @default(cuid())
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
-  
-  // Relasi Log: Semua pesan yang ada (untuk history LLM)
-  messages         ChatMessage[] 
-  
-  // Relasi Struktur: Semua putaran prompt/response (untuk audit/analisis)
-  promptGroups     PromptGroup[] 
+  id        String   @id @default(cuid())
+  title     String?  // Field baru sesuai referensi (opsional untuk judul chat)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  messages  ChatMessage[] 
 
-  @@map("chat_sessions")
+  @@map("chat_sessions")
 }
 
-// 2. Tabel Log Pesan (Setiap pesan adalah 1 baris)
+// 2. Isi Chat (Gelembung Pesan)
 model ChatMessage {
-  id               Int           @id @default(autoincrement())
-  sessionId        String
-  content          String        @db.Text
-  role             String        // 'user' atau 'ai'
-  createdAt        DateTime      @default(now())
+  id        Int      @id @default(autoincrement())
+  content   String   @db.Text
+  role      String   // "user" | "assistant"
+  createdAt DateTime @default(now())
+  
+  sessionId String
+  session   ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
-  // Relasi ke Sesi
-  session          ChatSession   @relation(fields: [sessionId], references: [id])
-  
-  // Relasi Balik ke PromptGroup: Mengidentifikasi pesan ini sebagai bagian dari putaran Q/A
-  // Satu pesan 'user' akan menjadi promptGroupUser, dan satu pesan 'ai' akan menjadi promptGroupAI
-  promptGroupUser  PromptGroup?  @relation("UserPrompt")
-  promptGroupAI    PromptGroup?  @relation("AIResponse")
-
-  @@map("chat_messages")
-  @@index([sessionId, createdAt])
-}
-
-// 3. Tabel Grouping (Setiap baris adalah 1 putaran Q/A)
-model PromptGroup {
-  id               Int           @id @default(autoincrement())
-  sessionId        String
-  createdAt        DateTime      @default(now())
-  
-  session          ChatSession   @relation(fields: [sessionId], references: [id])
-  
-  // Kunci Asing ke ChatMessage (Pesan User)
-  userMessageId    Int           @unique // Unique: Hanya 1 prompt per PromptGroup
-  userMessage      ChatMessage   @relation("UserPrompt", fields: [userMessageId], references: [id])
-  
-  // Kunci Asing ke ChatMessage (Pesan AI - bisa null jika AI belum/gagal jawab)
-  aiMessageId      Int?          @unique 
-  aiMessage        ChatMessage?  @relation("AIResponse", fields: [aiMessageId], references: [id])
-
-  @@map("prompt_groups")
+  @@map("chat_messages")
+  @@index([sessionId, createdAt]) 
 }
