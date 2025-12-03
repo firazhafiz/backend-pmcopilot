@@ -4,6 +4,7 @@ const router = express.Router();
 
 const sensorController = require("../controllers/sensorController");
 const agentController = require("../controllers/agentController");
+const ticketController = require("../controllers/ticketController");
 
 // ==========================================
 // 1. MACHINES ENDPOINTS (Sesuai Request)
@@ -16,6 +17,8 @@ router.post("/machines", sensorController.postMachine);
 // GET /machines
 // Fungsi: Ambil SEMUA data (Machine + Sensor + Predictions) untuk Dashboard
 router.get("/machines", sensorController.getMachines);
+
+router.get("/tickets", ticketController.getTickets);
 
 
 // ==========================================

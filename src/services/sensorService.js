@@ -2,6 +2,7 @@
 const prisma = require("../lib/prisma");
 const { getCachedPrediction } = require("../lib/cacheDB");
 const { callMlApi } = require("../lib/apiML");
+const ticketService = require("./ticketService");
 
 const FAILURE_CLASSES = [
   "No Failure",
@@ -10,57 +11,80 @@ const FAILURE_CLASSES = [
   "Overstrain Failure",
   "Heat Dissipation Failure",
   "Random Failures",
+  "Maintenance",
 ];
 
-const inProgress = new Map(); // anti race-condition
+const inProgress = new Map();
 
 async function predictAnomaly(machineId) {
-  // 1. Cek cache dulu
+  // 1. Cek Cache
   let cached = await getCachedPrediction(machineId);
-  if (cached) {
-    console.log(`[CACHE HIT] ${machineId}`);
-    // KALO ADA CACHE → langsung format sesuai yang diharapkan semua orang
-    return formatResponse(cached.sensor, cached.prediction);
-  }
+  if (cached) return formatResponse(cached.sensor, cached.prediction);
 
-  // 2. Kalau ada yang lagi proses → tunggu
+  // 2. Anti Race
   if (inProgress.has(machineId)) {
-    console.log(`[LOCK] Menunggu proses lain untuk ${machineId}`);
     const result = await inProgress.get(machineId);
     return formatResponse(result.sensor, result.prediction);
   }
 
-  // 3. Kita yang proses baru
+  // 3. Proses Baru
   const promise = (async () => {
     try {
-      console.log(`[ML CALL + SAVE] Proses baru untuk ${machineId}`);
-      const ml = await callMlApi(machineId);
+      console.log(`[PROCESS] Fetch ML Data untuk ${machineId}`);
+      let ml = await callMlApi(machineId);
 
-      const airTemp = parseFloat(ml["Air temperature [K]"]);
-      const processTemp = parseFloat(ml["Process temperature [K]"]);
-      const rotSpeed = parseInt(ml["Rotational speed [rpm]"]);
-      const torque = parseFloat(ml["Torque [Nm]"]);
-      const toolWear = parseInt(ml["Tool wear [min]"]);
-      const type = ml["Type"] || "M";
-      const failure = ml["Predicted Failure Type"] || "No Failure";
-
-      if ([airTemp, processTemp, rotSpeed, torque, toolWear].some(isNaN)) {
-        throw new Error("Data dari ML API tidak valid");
+      if (typeof ml === "string") {
+        try {
+          ml = JSON.parse(ml.replace(/'/g, '"'));
+        } catch (e) {}
       }
 
-      const isFailure = failure !== "No Failure";
-      const riskLevel = isFailure ? "high" : "low";
-      const recommendation = isFailure
-        ? `TERDETEKSI ${failure.toUpperCase()}! Segera lakukan maintenance pada ${machineId}.`
-        : `Mesin ${machineId} dalam kondisi normal.`;
+      const type = ml["Type"] || "M";
+      const currentFailure = ml["Predicted Failure Type"] || "No Failure";
+      const forecastFailure = ml["Forecast Failure Type"] || "No Failure";
 
-      await prisma.$transaction(async (tx) => {
+      const airTemp = parseFloat(ml["Air temperature [K]"]) || 0;
+      const processTemp = parseFloat(ml["Process temperature [K]"]) || 0;
+      const rotSpeed = parseInt(ml["Rotational speed [rpm]"]) || 0;
+      const torque = parseFloat(ml["Torque [Nm]"]) || 0;
+      const toolWear = parseInt(ml["Tool wear [min]"]) || 0;
+
+      const isMaintenance = currentFailure === "Maintenance";
+
+      if (!isMaintenance && [airTemp, processTemp].some((v) => isNaN(v))) {
+        throw new Error("Data Sensor Invalid");
+      }
+
+      let riskLevel = "low";
+      if (isMaintenance) riskLevel = "low";
+      else if (
+        currentFailure !== "No Failure" ||
+        (forecastFailure !== "No Failure" && forecastFailure !== "Maintenance")
+      )
+        riskLevel = "high";
+
+      let recommendation = `Mesin Berjalan Normal.`;
+      if (isMaintenance) recommendation = "INFO: Maintenance Mode.";
+      else if (currentFailure !== "No Failure")
+        recommendation = `BAHAYA: ${currentFailure} terdeteksi!`;
+      else if (
+        forecastFailure !== "No Failure" &&
+        forecastFailure !== "Maintenance"
+      )
+        recommendation = `PERINGATAN: Potensi ${forecastFailure} dalam ${
+          ml["Forecast Failure Countdown"] || "waktu dekat"
+        }. Tiket maintenance segera dibuat.`;
+
+      // 🛑 TANGKAP HASIL TIKET DARI TRANSAKSI
+      const newTicket = await prisma.$transaction(async (tx) => {
+        // 1. Machine
         await tx.machine.upsert({
           where: { id: machineId },
           update: { type },
           create: { id: machineId, type },
         });
 
+        // 2. Sensor
         await tx.sensorData.create({
           data: {
             machineId,
@@ -73,24 +97,34 @@ async function predictAnomaly(machineId) {
           },
         });
 
+        // 3. Prediction
         await tx.prediction.create({
           data: {
             machineId,
-            prediction: failure,
-            predictionIndex: FAILURE_CLASSES.indexOf(failure),
+            prediction: currentFailure,
+            predictionIndex: FAILURE_CLASSES.indexOf(currentFailure),
             probability: 1.0,
             rawOutput: ml,
             riskLevel,
             recommendation,
+            predictedAt: new Date(),
           },
         });
+
+        // 4. AUTO TICKET (Return hasilnya)
+        return await ticketService.processAutoTicket(
+          tx,
+          machineId,
+          ml,
+          currentFailure,
+          forecastFailure
+        );
       });
 
-      // Ambil yang terbaru dari DB
       const fresh = await getCachedPrediction(machineId);
-      if (!fresh) throw new Error("Gagal menyimpan ke DB");
 
-      return fresh; // { sensor, prediction }
+      // Kembalikan data fresh + info tiket baru
+      return { ...fresh, newTicket };
     } catch (error) {
       throw error;
     } finally {
@@ -100,41 +134,27 @@ async function predictAnomaly(machineId) {
 
   inProgress.set(machineId, promise);
   const result = await promise;
-
-  // SELALU return dalam format yang SAMA dengan versi lama
-  return formatResponse(result.sensor, result.prediction);
+  // Passing newTicket ke formatter
+  return formatResponse(result.sensor, result.prediction, result.newTicket);
 }
 
-// 2. FUNGSI GET (BARU: Ambil Semua Data)
+// ... (getAllMachinesFullData SAMA) ...
 async function getAllMachinesFullData() {
-  // Mengambil semua mesin yang terdaftar
+  // ... kode sama ...
   const machines = await prisma.machine.findMany({
-    orderBy: { id: 'asc' }, // Urutkan ID mesin A-Z
+    orderBy: { id: "asc" },
     include: {
-      // A. Ambil Data Sensor
-      sensorReadings: {
-        orderBy: { timestamp: 'desc' }, // Yang terbaru diatas
-        take: 100 // ⚠️ PERHATIAN: Batasi misal 100 data terakhir agar tidak berat
-      },
-      
-      // B. Ambil Data Prediksi (Klasifikasi/Anomaly)
-      predictions: {
-        orderBy: { predictedAt: 'desc' },
-        take: 100
-      },
-      
-      // C. Time Series (Nanti)
-      // Karena tabel Time Series belum ada (sedang dikerjakan teman),
-      // nanti Anda tinggal tambahkan relasinya di sini.
-      // timeSeriesPredictions: { ... } 
-    }
+      sensorReadings: { orderBy: { timestamp: "desc" }, take: 100 },
+      predictions: { orderBy: { predictedAt: "desc" }, take: 100 },
+      tickets: { where: { status: "open" }, orderBy: { createdAt: "desc" } },
+    },
   });
-
   return machines;
 }
 
-// Helper Format (Tetap Sama)
-function formatResponse(sensor, prediction) {
+// 🛑 FORMATTER DIPERBAIKI (Agar Frontend dapat Notif)
+function formatResponse(sensor, prediction, newTicket = null) {
+  const raw = prediction.rawOutput || {};
   return {
     sensorData: {
       type: sensor.machine?.type || "M",
@@ -152,12 +172,20 @@ function formatResponse(sensor, prediction) {
       riskLevel: prediction.riskLevel,
       recommendation: prediction.recommendation,
       predictedAt: prediction.predictedAt,
+      forecastFailureType: raw["Forecast Failure Type"] || "No Failure",
+      forecastTimestamp: raw["Forecast Failure Timestamp"] || null,
+      forecastCountdown: raw["Forecast Failure Countdown"] || null,
     },
+    // INI YANG DITUNGGU FRONTEND UNTUK POPUP NOTIFIKASI
+    generatedTicket: newTicket
+      ? {
+          id: newTicket.id,
+          title: newTicket.title,
+          priority: newTicket.priority,
+          isNew: true,
+        }
+      : null,
   };
 }
 
-// JANGAN LUPA EXPORT SEMUA FUNGSI
-module.exports = { 
-  predictAnomaly,      // Untuk POST /machines & Agent
-  getAllMachinesFullData // Untuk GET /machines
-};
+module.exports = { predictAnomaly, getAllMachinesFullData };

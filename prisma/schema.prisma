@@ -70,18 +70,18 @@ model Prediction {
 
 // Tiket Maintenance
 model MaintenanceTicket {
-  id        Int       @id @default(autoincrement())
+  id          Int       @id @default(autoincrement())
+  
+  machineId   String
+  machine     Machine   @relation(fields: [machineId], references: [id])
 
-  // Foreign Key Field
-  machineId String
-
-  issue     String
-  status    String    @default("open")
-  createdAt DateTime  @default(now())
-  closedAt  DateTime?
-
-  // Relasi: Menghubungkan ke tabel Machine
-  machine   Machine @relation(fields: [machineId], references: [id])
+  title       String    // Dulu 'issue', kita ubah jadi 'title' biar jelas (Judul)
+  description String?   @db.Text // FIELD BARU: Rangkuman sensor/alasan
+  priority    String    @default("medium") // FIELD BARU: high, medium, low
+  
+  status      String    @default("open") // open, in_progress, resolved
+  createdAt   DateTime  @default(now())
+  closedAt    DateTime?
 
   @@map("maintenance_tickets")
 }
