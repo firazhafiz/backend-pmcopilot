@@ -1,0 +1,199 @@
+openapi: 3.0.3
+info:
+  title: PMCopilot API
+  version: 1.0.0
+servers:
+  - url: http://localhost:5000/api
+paths:
+  /machines:
+    get:
+      summary: List machines with latest data
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            type: integer
+          required: false
+        - in: query
+          name: offset
+          schema:
+            type: integer
+          required: false
+      responses:
+        "200":
+          description: Success
+    post:
+      summary: Trigger ML full-request for all machines
+      responses:
+        "200":
+          description: Success
+  /machines/{machineId}:
+    get:
+      summary: Get machine by ID
+      parameters:
+        - in: path
+          name: machineId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success
+    post:
+      summary: Trigger ML predict for specific machine
+      parameters:
+        - in: path
+          name: machineId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success
+  /agent/chat:
+    post:
+      summary: Start a new chat session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+              required:
+                - message
+      responses:
+        "200":
+          description: Success
+  /agent/chat/{sessionId}:
+    post:
+      summary: Continue chat session
+      parameters:
+        - in: path
+          name: sessionId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+              required:
+                - message
+      responses:
+        "200":
+          description: Success
+    get:
+      summary: Get chat history
+      parameters:
+        - in: path
+          name: sessionId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success
+  /tickets:
+    get:
+      summary: List tickets
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            type: integer
+        - in: query
+          name: offset
+          schema:
+            type: integer
+        - in: query
+          name: machineId
+          schema:
+            type: string
+        - in: query
+          name: status
+          schema:
+            type: boolean
+        - in: query
+          name: priority
+          schema:
+            type: string
+            enum: [LOW, MEDIUM, HIGH, URGENT]
+      responses:
+        "200":
+          description: Success
+  /tickets/{ticketId}:
+    get:
+      summary: Get ticket by ID
+      parameters:
+        - in: path
+          name: ticketId
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Success
+  /tickets/{ticketId}/status:
+    patch:
+      summary: Update ticket status
+      parameters:
+        - in: path
+          name: ticketId
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: boolean
+              required:
+                - status
+      responses:
+        "200":
+          description: Success
+  /scheduler/status:
+    get:
+      summary: Get scheduler status
+      responses:
+        "200":
+          description: Success
+  /scheduler/trigger:
+    post:
+      summary: Trigger scheduler manually
+      responses:
+        "200":
+          description: Success
+  /scheduler/start:
+    post:
+      summary: Start scheduler
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                intervalMs:
+                  type: integer
+      responses:
+        "200":
+          description: Success
+  /scheduler/stop:
+    post:
+      summary: Stop scheduler
+      responses:
+        "200":
+          description: Success

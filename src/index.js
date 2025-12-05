@@ -6,6 +6,9 @@ const config = require("./config");
 const routes = require("./routes");
 const { errorHandler, notFoundHandler } = require("./utils/errorHandler");
 const { logger } = require("./middleware");
+const swaggerUi = require("swagger-ui-express");
+const YAML = require("yamljs");
+const path = require("path");
 
 const app = express();
 
@@ -28,6 +31,8 @@ app.use(logger);
 // ==========================================
 
 app.use("/api", routes);
+const swaggerDocument = YAML.load(path.join(__dirname, "swagger.yaml"));
+app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
 // ==========================================
 // ERROR HANDLERS
