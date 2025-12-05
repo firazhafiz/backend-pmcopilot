@@ -14,8 +14,8 @@ async function generateTicketContent(machineId, sensorData, prediction) {
 Tugas: Buat konten tiket maintenance dalam Bahasa Indonesia yang profesional.
 
 Berikan output JSON dengan keys persis: title, issue.
-- title: ringkas (≤ 10 kata),jangan masukkan lagi machineId nya, fleksibel dan relevan dengan kondisi mesin; gunakan istilah teknis atau indikator utama bila perlu; tidak bergantung pada template.
-- issue: maksimum 4-5 kalimat yang mendeskripsikan isu dari informasi mesin: (1) ringkas forecast + countdown + waktu perkiraan, (2) sorot metrik sensor kunci termasuk delta suhu (process − air), RPM, torsi, dan tool wear, (3) korelasi ke skenario lapangan/dampak operasional, (4) tindakan rekomendasi yang dapat dieksekusi oleh teknisi.
+- title: ringkas (≤ 10 kata), jangan masukkan lagi machineId nya, fleksibel dan relevan dengan kondisi mesin, gunakan istilah teknis atau indikator utama bila perlu, tidak bergantung pada template, tidak perlu dipisah titik dua (:).
+- issue: maksimum 4-5 kalimat yang mendeskripsikan isu dari informasi mesin: (1) ringkas forecast + countdown + waktu perkiraan, (2) sorot metrik sensor kunci termasuk delta suhu (process - air), RPM, torsi, dan tool wear, (3) korelasi ke skenario lapangan/dampak operasional, (4) tindakan rekomendasi yang dapat dieksekusi oleh teknisi.
 
 Data:
 Machine ID: ${machineId}
