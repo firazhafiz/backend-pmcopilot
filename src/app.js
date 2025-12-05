@@ -38,6 +38,7 @@ app.get("/api", (req, res) => {
 // Swagger Docs
 const swaggerDocument = YAML.load(path.join(__dirname, "swagger.yaml"));
 app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
+app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
 // 404 & Error Handlers
 app.use(notFoundHandler);
