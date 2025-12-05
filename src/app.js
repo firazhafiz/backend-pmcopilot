@@ -59,7 +59,7 @@ app.get("/docs", (req, res) => {
         <script>
           window.onload = function() {
             SwaggerUIBundle({
-              url: '/swagger.yaml',
+              url: window.location.origin + '/swagger.yaml',
               dom_id: '#swagger-ui',
               presets: [
                 SwaggerUIBundle.presets.apis,
