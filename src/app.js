@@ -38,8 +38,41 @@ app.get("/api", (req, res) => {
 
 // Swagger Docs
 const swaggerDocument = YAML.load(path.join(__dirname, "swagger.yaml"));
-app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
-app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
+// Serve swagger.yaml for CDN Swagger UI
+app.get("/swagger.yaml", (req, res) => {
+  res.sendFile(path.join(__dirname, "swagger.yaml"));
+});
+
+// Swagger UI via CDN
+app.get("/docs", (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <title>Swagger UI</title>
+        <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist/swagger-ui.css" />
+      </head>
+      <body>
+        <div id="swagger-ui"></div>
+        <script src="https://unpkg.com/swagger-ui-dist/swagger-ui-bundle.js"></script>
+        <script src="https://unpkg.com/swagger-ui-dist/swagger-ui-standalone-preset.js"></script>
+        <script>
+          window.onload = function() {
+            SwaggerUIBundle({
+              url: '/swagger.yaml',
+              dom_id: '#swagger-ui',
+              presets: [
+                SwaggerUIBundle.presets.apis,
+                SwaggerUIStandalonePreset
+              ],
+              layout: "StandaloneLayout"
+            });
+          };
+        </script>
+      </body>
+    </html>
+  `);
+});
 
 // 404 & Error Handlers
 app.use(notFoundHandler);
