@@ -11,94 +11,89 @@ datasource db {
 }
 
 // ===================================
-// MODEL INTI (TIDAK DIUBAH)
+// MODEL INTI
 // ===================================
 
 model Machine {
-  id   String @id
-  type String @default("unknown")
+  id              String                @id
+  type            String                @default("unknown")
+  // Latest sensor readings (denormalized fields)
+  airTemperature      Float?
+  processTemperature  Float?
+  rotationalSpeed     Int?
+  torque              Float?
+  toolWear            Int?
+  sensorTimestamp     DateTime?
 
-  sensorReadings SensorData[]
-  predictions    Prediction[]
-  tickets        MaintenanceTicket[]
+  predictions     Prediction[]
+  tickets         MaintenanceTicket[]
 
   @@map("machines")
 }
 
-// Raw sensor data sesuai input model ML
-model SensorData {
-  id                 Int      @id @default(autoincrement())
-  airTemperature     Float
-  processTemperature Float
-  rotationalSpeed    Int
-  torque             Float
-  toolWear           Int
-  timestamp          DateTime @default(now())
-  createdAt          DateTime @default(now())
-
-  // Foreign Key Field
-  machineId String 
-
-  // Relasi: Menghubungkan ke tabel Machine
-  machine   Machine @relation(fields: [machineId], references: [id])
-
-  @@map("sensor_data")
-  @@index([machineId, timestamp])
-}
-
 // Prediksi dari ML
 model Prediction {
-  id                Int      @id @default(autoincrement())
+  id                   Int       @id @default(autoincrement())
+  machineId            String
 
-  // Foreign Key Field: String? agar NULLABLE sesuai kode asli Anda
-  machineId         String? 
+  // Prediction results
+  prediction           String    // Predicted Failure Type (Current)
+  forecast             String?   // Forecast Failure Type (Future)
+  recommendation       String?   @db.Text
+  // Forecast timestamp (parsed)
+  forecastFailureTimestamp DateTime?
 
-  prediction        String   
-  predictionIndex   Int      
-  probability       Float    
-  rawOutput         Json     
-  riskLevel         String   
-  recommendation    String?
-  predictedAt       DateTime @default(now())
+  // Forecast info
+  predictedAt          DateTime  @default(now())
+
+  // Raw data untuk audit/debug
+  rawPayload           Json?
+
+  // Metadata
+  createdAt            DateTime  @default(now())
 
   // Relasi: Menghubungkan ke tabel Machine
-  machine   Machine? @relation(fields: [machineId], references: [id])
+  machine              Machine   @relation(fields: [machineId], references: [id], onDelete: Cascade)
 
   @@map("predictions")
-  @@index([machineId, predictedAt])
+  @@index([machineId])
+  @@index([predictedAt])
 }
 
-// Tiket Maintenance
+// Tiket Maintenance (DIUPDATE)
 model MaintenanceTicket {
   id        Int       @id @default(autoincrement())
-
-  // Foreign Key Field
   machineId String
+  title     String    @default("Untitled")
 
-  issue     String
-  status    String    @default("open")
-  createdAt DateTime  @default(now())
-  closedAt  DateTime?
+  issue             String    @db.Text
+  status            Boolean   @default(true)      // true=opened, false=closed
+  priority          String?   @default("MEDIUM") // LOW|MEDIUM|HIGH|URGENT
+  expectedFailureAt DateTime?
+  createdAt         DateTime  @default(now())
+  closedAt          DateTime?
 
   // Relasi: Menghubungkan ke tabel Machine
-  machine   Machine @relation(fields: [machineId], references: [id])
+  machine   Machine   @relation(fields: [machineId], references: [id], onDelete: Cascade)
 
   @@map("maintenance_tickets")
+  @@index([machineId])
+  @@index([status])
+  @@index([createdAt])
 }
 
 // ===================================
-// CHATBOT MODELS (DIPERBARUI)
-// Menggunakan struktur referensi (Sederhana)
+// CHATBOT MODELS 
 // ===================================
 
 // 1. Sesi Chat (Judul di Sidebar)
 model ChatSession {
-  id        String   @id @default(cuid())
-  title     String?  // Field baru sesuai referensi (opsional untuk judul chat)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  
-  messages  ChatMessage[] 
+  id        String        @id @default(cuid())
+  title     String?       // Field baru sesuai referensi (opsional untuk judul chat)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  messages  ChatMessage[]
 
   @@map("chat_sessions")
 }
@@ -109,10 +104,10 @@ model ChatMessage {
   content   String   @db.Text
   role      String   // "user" | "assistant"
   createdAt DateTime @default(now())
-  
+
   sessionId String
   session   ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@map("chat_messages")
-  @@index([sessionId, createdAt]) 
+  @@index([sessionId, createdAt])
 }
