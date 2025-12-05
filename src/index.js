@@ -1,48 +1,9 @@
-const express = require("express");
-const cors = require("cors");
 const prisma = require("./lib/prisma");
 const redis = require("./lib/redis");
 const config = require("./config");
-const routes = require("./routes");
-const { errorHandler, notFoundHandler } = require("./utils/errorHandler");
-const { logger } = require("./middleware");
-const swaggerUi = require("swagger-ui-express");
-const YAML = require("yamljs");
-const path = require("path");
+const app = require("./app");
 
-const app = express();
-
-// ==========================================
-// MIDDLEWARE
-// ==========================================
-
-// CORS
-app.use(cors({ origin: "http://localhost:3000" }));
-
-// Body Parser
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ limit: "10mb", extended: true }));
-
-// Logger
-app.use(logger);
-
-// ==========================================
-// ROUTES
-// ==========================================
-
-app.use("/api", routes);
-const swaggerDocument = YAML.load(path.join(__dirname, "swagger.yaml"));
-app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
-
-// ==========================================
-// ERROR HANDLERS
-// ==========================================
-
-// 404 Not Found Handler
-app.use(notFoundHandler);
-
-// Global Error Handler (HARUS PALING AKHIR)
-app.use(errorHandler);
+// app initialization moved to ./app
 
 // ==========================================
 // SERVER STARTUP
