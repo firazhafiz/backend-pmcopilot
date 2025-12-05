@@ -22,6 +22,19 @@ app.use(logger);
 // Routes
 app.use("/api", routes);
 
+app.get("/", (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: "PMCopilot API running",
+    docs: "/api/docs",
+    base: "/api",
+  });
+});
+
+app.get("/api", (req, res) => {
+  res.status(200).json({ success: true, message: "PMCopilot API base" });
+});
+
 // Swagger Docs
 const swaggerDocument = YAML.load(path.join(__dirname, "swagger.yaml"));
 app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
