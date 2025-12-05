@@ -25,6 +25,8 @@ model Machine {
   toolWear            Int?
   sensorTimestamp     DateTime?
 
+  classification      String?           // Classification from ML payload
+
   predictions     Prediction[]
   tickets         MaintenanceTicket[]
 

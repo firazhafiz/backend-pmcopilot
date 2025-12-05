@@ -145,6 +145,8 @@ async function savePredictionData(sensorData, prediction) {
               ? Math.round(Number(sensorData.toolWear))
               : null,
           sensorTimestamp: sensorData.timestamp,
+          classification:
+            prediction.rawPayload?.predictedFailureType || "No Failure",
         },
         create: {
           id: sensorData.machineId,
@@ -161,11 +163,12 @@ async function savePredictionData(sensorData, prediction) {
               ? Math.round(Number(sensorData.toolWear))
               : null,
           sensorTimestamp: sensorData.timestamp,
+          classification:
+            prediction.rawPayload?.predictedFailureType || "No Failure",
         },
       });
-
+      let forecastTs = null;
       if (hasForecastFailure) {
-        let forecastTs = null;
         try {
           const rawTs = prediction.rawPayload?.forecastFailureTimestampRaw;
           if (rawTs) {
@@ -174,18 +177,20 @@ async function savePredictionData(sensorData, prediction) {
           }
         } catch (_) {}
         forecastTs = forecastTs || prediction.predictedAt || null;
-        await tx.prediction.create({
-          data: {
-            machineId: sensorData.machineId,
-            prediction: prediction.prediction,
-            forecast: prediction.forecast,
-            recommendation: prediction.recommendation,
-            predictedAt: prediction.predictedAt,
-            rawPayload: prediction.rawPayload,
-            forecastFailureTimestamp: forecastTs,
-          },
-        });
+      } else {
+        forecastTs = null;
       }
+      await tx.prediction.create({
+        data: {
+          machineId: sensorData.machineId,
+          prediction: prediction.prediction,
+          forecast: prediction.forecast,
+          recommendation: prediction.recommendation,
+          predictedAt: prediction.predictedAt,
+          rawPayload: prediction.rawPayload,
+          forecastFailureTimestamp: forecastTs,
+        },
+      });
     });
 
     let createdTicket = null;

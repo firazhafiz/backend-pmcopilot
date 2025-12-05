@@ -146,6 +146,12 @@ async function getMachines(req, res, next) {
       parsedOffset
     );
 
+    // Update classification logic
+    result.data = result.data.map((machine) => {
+      machine.classification = machine.latestPrediction?.rawPayload?.predictedFailureType || machine.latestPrediction?.prediction || machine.classification || "No Failure";
+      return machine;
+    });
+
     // Success response
     res.status(200).json({
       success: true,
