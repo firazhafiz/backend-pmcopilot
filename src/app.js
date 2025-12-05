@@ -21,6 +21,7 @@ app.use(logger);
 
 // Routes
 app.use("/api", routes);
+app.use("/", routes);
 
 app.get("/", (req, res) => {
   res.status(200).json({
